@@ -7,12 +7,15 @@
 	function login() {
 
 		if (
-			userId === 'mlclub' &&
-			password === 'mlclub123'
-		) {
-			localStorage.setItem('admin', 'true');
-			goto('/admin');
-		} else {
+	userId === 'mlclub' &&
+	password === 'mlclub123'
+) {
+	localStorage.setItem('admin', 'true');
+	localStorage.setItem('username', userId);
+
+	goto('/admin');
+}
+		 else {
 			alert('Invalid Credentials');
 		}
 	}

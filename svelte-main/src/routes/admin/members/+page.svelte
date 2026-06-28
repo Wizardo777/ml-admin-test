@@ -2,120 +2,91 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/supabase';
 
+	import MemberCard from './MemberCard.svelte';
+	import MemberForm from './MemberForm.svelte';
+	import SearchBar from './SearchBar.svelte';
+	import AddButton from './AddButton.svelte';
+	import MobileMemberModal from './MobileMemberModal.svelte';
+	import { showToast } from '$lib/components/ui/toast';
+	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
+	import SkeletonCard from '$lib/components/ui/SkeletonCard.svelte';
+
 	let members = [];
+
+let loading = true;
+
+	let search = '';
+
+	let showMobileForm = false;
+
+	let editingId = null;
+	let showDeleteModal = false;
+
+let memberToDelete = null;
+
+	let photoFile = null;
 
 	let name = '';
 	let position = '';
 	let type = '';
+
 	let github = '';
 	let linkedin = '';
 	let facebook = '';
 
-	let photoFile = null;
-	let editingId = null;
-    let search = '';
-
 	async function loadMembers() {
-		const { data } = await supabase
+
+		const { data, error } = await supabase
 			.from('members')
-			.select('*');
+			.select('*')
+			.order('id', { ascending: false });
+
+		if (error) {
+
+			console.error(error);
+			return;
+
+		}
 
 		members = data || [];
+
+loading = false;
+
 	}
 
 	async function uploadPhoto() {
 
 		if (!photoFile) return '';
-        console.log(photoFile);
 
 		const fileName =
-			Date.now() + '-' + photoFile.name;
+			`${Date.now()}-${photoFile.name}`;
 
 		const { error } = await supabase.storage
 			.from('member-photos')
 			.upload(fileName, photoFile);
 
 		if (error) {
-	console.error('UPLOAD ERROR:', error);
-	alert(JSON.stringify(error));
-	return '';
-}
+
+			console.error(error);
+			showToast('Photo upload failed.', 'error');
+
+			return '';
+
+		}
 
 		const {
-	data: { publicUrl }
-} = supabase.storage
-	.from('member-photos')
-	.getPublicUrl(fileName);
+			data: { publicUrl }
+		} = supabase.storage
+			.from('member-photos')
+			.getPublicUrl(fileName);
 
-console.log('PUBLIC URL:', publicUrl);
+		return publicUrl;
 
-return publicUrl;
 	}
 
-	async function deleteMember(id) {
+	function clearForm() {
 
-	if (!confirm('Delete this member?')) return;
-
-	await supabase
-		.from('members')
-		.delete()
-		.eq('id', id);
-
-	loadMembers();
-}
-
-	function editMember(member) {
-
-		editingId = member.id;
-
-		name = member.name || '';
-		position = member.position || '';
-		type = member.type || '';
-
-		github = member.github || '';
-		linkedin = member.linkedin || '';
-		facebook = member.facebook || '';
-	}
-
-	async function addMember() {
-
-		if (!name || !position || !type) return;
-
-		if (editingId) {
-
-			await supabase
-				.from('members')
-				.update({
-					name,
-					position,
-					type,
-					github,
-					linkedin,
-					facebook
-				})
-				.eq('id', editingId);
-
-			editingId = null;
-
-		} else {
-
-			const photoUrl = await uploadPhoto();
-            console.log("PHOTO URL:", photoUrl);
-
-			await supabase
-				.from('members')
-				.insert([
-					{
-						name,
-						position,
-						type,
-						photo: photoUrl,
-						github,
-						linkedin,
-						facebook
-					}
-				]);
-		}
+		editingId = null;
 
 		name = '';
 		position = '';
@@ -127,159 +98,545 @@ return publicUrl;
 
 		photoFile = null;
 
+	}
+
+	function editMember(member) {
+
+		editingId = member.id;
+
+		name = member.name ?? '';
+		position = member.position ?? '';
+		type = member.type ?? '';
+
+		github = member.github ?? '';
+		linkedin = member.linkedin ?? '';
+		facebook = member.facebook ?? '';
+
+		showMobileForm = true;
+
+	}
+
+	function deleteMember(id) {
+
+	memberToDelete = id;
+
+	showDeleteModal = true;
+
+}
+
+async function confirmDeleteMember() {
+
+	if (!memberToDelete)
+		return;
+
+	await supabase
+		.from('members')
+		.delete()
+		.eq('id', memberToDelete);
+
+	showDeleteModal = false;
+
+	memberToDelete = null;
+
+	loadMembers();
+
+	showToast('Member deleted successfully.');
+
+}
+
+	async function saveMember() {
+
+		const wasEditing = editingId !== null;
+
+		if (!name || !position || !type)
+			return;
+
+		if (editingId) {
+
+			await supabase
+				.from('members')
+				.update({
+
+					name,
+					position,
+					type,
+
+					github,
+					linkedin,
+					facebook
+
+				})
+				.eq('id', editingId);
+
+		}
+
+		else {
+
+			const photo = await uploadPhoto();
+
+			await supabase
+				.from('members')
+				.insert([{
+
+					name,
+					position,
+					type,
+
+					photo,
+
+					github,
+					linkedin,
+					facebook
+
+				}]);
+
+		}
+
+		clearForm();
+
+		showMobileForm = false;
+
 		loadMembers();
+
+showToast(
+	wasEditing
+		? 'Member updated successfully.'
+		: 'Member added successfully.'
+);
+
 	}
 
 	onMount(loadMembers);
 </script>
 
-<div class="p-10 text-white">
+<div class="members-page">
 
-	<div class="flex justify-between items-center mb-8">
+	<div class="glass-panel">
 
-		<h1 class="text-4xl font-bold">
-			Members
-		</h1>
+		<div class="header">
 
-	</div>
+		<div>
 
-	<div class="bg-zinc-900 p-6 rounded-xl mb-8">
+			<h1>MEMBERS</h1>
 
-		<div class="grid grid-cols-3 gap-4">
-
-			<input
-				type="file"
-				onchange={(e) => {
-					photoFile = e.target.files[0];
-				}}
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={name}
-				placeholder="Name"
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={position}
-				placeholder="Position"
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={type}
-				placeholder="Type"
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={github}
-				placeholder="GitHub URL"
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={linkedin}
-				placeholder="LinkedIn URL"
-				class="bg-zinc-800 p-3 rounded"
-			/>
-
-			<input
-				bind:value={facebook}
-				placeholder="Facebook URL"
-				class="bg-zinc-800 p-3 rounded"
-			/>
+			<p>Good Morning <b>Profile</b></p>
 
 		</div>
 
-		<button
-			onclick={addMember}
-			class="mt-4 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg"
-		>
-			{editingId ? 'Update Member' : 'Save Member'}
-		</button>
+		<div class="mobile-add">
+
+	<AddButton
+		onclick={() => showMobileForm = true}
+	/>
+
+</div>
 
 	</div>
-    <input
-	bind:value={search}
-	placeholder="Search members..."
-	class="w-full bg-zinc-900 p-3 rounded-xl mb-4"
-    />
 
-	<div class="bg-zinc-900 rounded-xl overflow-hidden">
-
-		<table class="w-full">
-
-			<thead class="bg-zinc-800">
-
-				<tr>
-					<th class="text-left p-4">Photo</th>
-					<th class="text-left p-4">Name</th>
-					<th class="text-left p-4">Position</th>
-					<th class="text-left p-4">Type</th>
-					<th class="text-left p-4">Actions</th>
-				</tr>
-
-			</thead>
-
-			<tbody>
-
-				{#each members.filter(
-	member =>
-		member.name?.toLowerCase().includes(search.toLowerCase()) ||
-		member.position?.toLowerCase().includes(search.toLowerCase()) ||
-		member.type?.toLowerCase().includes(search.toLowerCase())
-) as member}
-
-				<tr class="border-t border-zinc-700">
-
-					<td class="p-4">
-	<img
-		src={member.photo}
-		alt=""
-		class="w-12 h-12 rounded-full object-cover"
+	<SearchBar
+		bind:value={search}
 	/>
-</td>
 
-					<td class="p-4">
-						{member.name}
-					</td>
+	<div class="layout">
 
-					<td class="p-4">
-						{member.position}
-					</td>
+		<!-- LEFT -->
 
-					<td class="p-4">
-						{member.type}
-					</td>
+		<section class="cards">
 
-					<td class="p-4 flex gap-2">
+	{#if loading}
 
-						<button
-							onclick={() => editMember(member)}
-							class="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded"
-						>
-							Edit
-						</button>
+		<SkeletonCard />
+		<SkeletonCard />
+		<SkeletonCard />
+		<SkeletonCard />
 
-						<button
-							onclick={() => deleteMember(member.id)}
-							class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
-						>
-							Delete
-						</button>
+	{:else if members.filter(
+		member =>
+			member.name?.toLowerCase().includes(search.toLowerCase()) ||
+			member.position?.toLowerCase().includes(search.toLowerCase()) ||
+			member.type?.toLowerCase().includes(search.toLowerCase())
+	).length}
 
-					</td>
+		{#each members.filter(
+			member =>
+				member.name?.toLowerCase().includes(search.toLowerCase()) ||
+				member.position?.toLowerCase().includes(search.toLowerCase()) ||
+				member.type?.toLowerCase().includes(search.toLowerCase())
+		) as member}
 
-				</tr>
+			<MemberCard
 
-				{/each}
+				{member}
 
-			</tbody>
+				onEdit={() => editMember(member)}
 
-		</table>
+				onDelete={() => deleteMember(member.id)}
+
+			/>
+
+		{/each}
+
+	{:else}
+
+		<div class="empty-state">
+
+			<div class="emoji">👥</div>
+
+			<h2>No Members Yet</h2>
+
+			<p>Add your first member to get started.</p>
+
+		</div>
+
+	{/if}
+
+</section>
+
+		<!-- RIGHT -->
+
+		<aside class="desktop-form">
+
+			<MemberForm
+
+				bind:photoFile
+
+				bind:name
+
+				bind:position
+
+				bind:type
+
+				bind:github
+
+				bind:linkedin
+
+				bind:facebook
+
+				editing={editingId !== null}
+
+				onSave={saveMember}
+
+			/>
+
+		</aside>
+
+	</div>
+	
+
+		<!-- MOBILE FORM -->
+
+	<MobileMemberModal
+
+		open={showMobileForm}
+
+		onClose={() => {
+
+			showMobileForm = false;
+
+			clearForm();
+
+		}}
+
+	>
+
+		<MemberForm
+
+			bind:photoFile
+
+			bind:name
+
+			bind:position
+
+			bind:type
+
+			bind:github
+
+			bind:linkedin
+
+			bind:facebook
+
+			editing={editingId !== null}
+
+			onSave={saveMember}
+
+		/>
+
+	</MobileMemberModal>
+	<ConfirmModal
+
+	open={showDeleteModal}
+
+	title="Delete Member"
+
+	message="This action cannot be undone."
+
+	onCancel={() => {
+
+		showDeleteModal = false;
+
+		memberToDelete = null;
+
+	}}
+
+	onConfirm={confirmDeleteMember}
+
+/>
 
 	</div>
 
 </div>
+
+
+
+<style>
+
+.members-page{
+
+	padding-left:130px;
+	padding-right:30px;
+	padding-top:30px;
+	padding-bottom:30px;
+
+	box-sizing:border-box;
+
+	min-height:100vh;
+
+}
+.glass-panel{
+
+	background:var(--glass-bg);
+
+	backdrop-filter:blur(var(--blur));
+	-webkit-backdrop-filter:blur(var(--blur));
+
+	border:1px solid var(--glass-border);
+
+	border-radius:var(--radius-xl);
+
+	padding:34px;
+
+	box-shadow:var(--glass-shadow);
+
+}
+
+.header{
+
+	display:flex;
+
+	justify-content:space-between;
+
+	align-items:flex-start;
+
+	margin-bottom:12px;
+
+}
+
+.header h1{
+
+	margin:0;
+
+	font-size:5rem;
+
+	line-height:.9;
+
+	font-weight:900;
+
+	color:white;
+
+	font-family:
+	Impact,
+	Haettenschweiler,
+	'Arial Narrow Bold',
+	sans-serif;
+
+	letter-spacing:-2px;
+
+}
+
+.header p{
+
+	margin-top:10px;
+
+	font-size:1.8rem;
+
+	color:white;
+
+}
+
+.layout{
+
+	display:grid;
+
+	grid-template-columns:1fr 360px;
+
+	gap:24px;
+
+	align-items:start;
+
+	margin-top:-8px;
+
+}
+
+.cards{
+
+	display:grid;
+
+	grid-template-columns:repeat(2,1fr);
+
+	gap:22px;
+
+}
+
+.desktop-form{
+
+	position:sticky;
+
+	top:30px;
+
+}
+.desktop-form{
+
+	position:sticky;
+
+	top:30px;
+
+}
+
+/* ADD THIS HERE */
+
+.mobile-add{
+
+	display:none;
+
+}
+
+@media(max-width:1200px){
+
+.layout{
+
+	grid-template-columns:1fr;
+
+}
+
+.desktop-form{
+
+	position:relative;
+
+}
+
+}
+
+@media(max-width:768px){
+
+.members-page{
+
+	padding:18px;
+
+}
+
+.header{
+
+	flex-direction:column;
+
+	align-items:flex-start;
+
+	gap:18px;
+
+}
+
+.header h1{
+
+	font-size:3.8rem;
+
+}
+
+.header p{
+
+	font-size:1.3rem;
+
+}
+
+.cards{
+
+	grid-template-columns:1fr;
+
+}
+
+.desktop-form{
+
+	display:none;
+
+}
+
+/* ONLY THIS */
+
+.mobile-add{
+
+	display:block;
+
+}
+
+}
+
+@media(max-width:1200px){
+
+.layout{
+
+	grid-template-columns:1fr;
+
+}
+
+.desktop-form{
+
+	position:relative;
+
+}
+
+}
+
+@media(max-width:768px){
+
+.members-page{
+
+	padding:18px;
+
+}
+
+.header{
+
+	flex-direction:column;
+
+	align-items:flex-start;
+
+	gap:18px;
+
+}
+
+.header h1{
+
+	font-size:3.8rem;
+
+}
+
+.header p{
+
+	font-size:1.3rem;
+
+}
+
+.cards{
+
+	grid-template-columns:1fr;
+
+}
+
+.desktop-form{
+
+	display:none;
+
+}
+
+
+}
+
+</style>
